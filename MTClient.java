@@ -7,8 +7,8 @@
  * for the user to type something in that will be sent to the server.
  * Anything sent to the server is broadcast to all clients.
  *
- * The MTClient uses a ClientListener whose code is in a separate file.
- * The ClientListener runs in a separate thread, recieves messages form the server,
+ * The MTClient uses a ServerReader whose code is in a separate file.
+ * The ServerReader runs in a separate thread, recieves messages form the server,
  * and displays them on the screen.
  *
  * Data received is sent to the output screen, so it is possible that as
@@ -28,19 +28,21 @@ import java.util.ArrayList;
 
 public class MTClient
 {
-	private EnumHolder enumHolder;
+	private ThreadAssist threadAssist;
 	private ArrayList<String> socketAddrList;
 
 	public MTClient ()
 	{
-		enumHolder = new EnumHolder();
+		threadAssist = new ThreadAssist();
+		threadAssist.setState(ThreadAssist.State.SERVER);
 		socketAddrList = new ArrayList<String>();
 
 	}
 	
 	public void runClient()
 	{
-		
+		String data;
+		boolean skipFirstSend = false;
 		try
 		{
 			String hostname = "localhost";
@@ -48,7 +50,7 @@ public class MTClient
 
 
 
-			System.out.println("Connecting to server on port " + port);
+			System.out.println("\nConnecting to server on port " + port);
 			Socket connectionSock = new Socket(hostname, port);
 
 			DataOutputStream serverOutput = new DataOutputStream(connectionSock.getOutputStream());
@@ -57,31 +59,89 @@ public class MTClient
 
 
 			// Start a thread to listen and display data sent by the server
-			ClientListener listener = new ClientListener(connectionSock, this.socketAddrList, this.enumHolder);
-			Thread theThread = new Thread(listener);
-			theThread.start();
+			ServerReader listener = new ServerReader(connectionSock, this.socketAddrList, this.threadAssist);
+			Thread listenerThread = new Thread(listener);
+			listenerThread.start();
 
-			// Read input from the keyboard and send it to everyone else.
-			// The only way to quit is to hit control-c, but a quit command
-			// could easily be added.
+			// Start a thread to listen for peer connection on (current port + 1000)
+			PeerListener peerListener = new PeerListener(connectionSock.getLocalPort() + 1000, this.threadAssist);
+			Thread peerListenerThread = new Thread(peerListener);
+			peerListenerThread.start();
+
+			// Read input from the keyboard and send it to appropriate location.
+			// The only way to quit is to hit control-c
 			Scanner keyboard = new Scanner(System.in);
 			while (true)
 			{
-				String data = keyboard.nextLine();
-				if (enumHolder.getState() == EnumHolder.State.SERVER)
+				// Get keyboard input
+				data = keyboard.nextLine();
+
+				// Send text to Server
+				if (threadAssist.getState() == ThreadAssist.State.SERVER)
 				{
 					serverOutput.writeBytes(data + "\n");
 				}
-				else if (enumHolder.getState() == EnumHolder.State.SELECT)
+
+				// Select from options list
+				else if (threadAssist.getState() == ThreadAssist.State.SELECT)
 				{
-					// Send request list code
+					// Send Code: request list of clients
 					if (data.equals("r"))
 					{
-						serverOutput.writeBytes("200" + "\n");
+						threadAssist.setState(ThreadAssist.State.SERVER);
+						serverOutput.writeBytes("200\n");
 					}
+
+					// Connect to slected client
 					else
 					{
-						System.out.println("you will be connected to peer #" + data + " when this function is available.");
+						try
+						{
+							int numSelect = Integer.parseInt(data);
+							// Selection must be in range of listed clients
+							if (numSelect <= socketAddrList.size() && numSelect > 0)
+							{
+								System.out.println("Connecting to peer #" + data);
+								threadAssist.setPeerSocket(makeSocket(socketAddrList.get(numSelect - 1)));
+								threadAssist.setState(ThreadAssist.State.PEER);
+								threadAssist.setPeer(true);
+								System.out.println("Connected");
+
+								// Start peer reader thread (listens and prints peer's text)
+								PeerReader peerReader = new PeerReader(threadAssist.getPeerSocket());
+								Thread peerReaderThread = new Thread(peerReader);
+								peerReaderThread.start();
+
+								//set bool so last entered value isn't sent
+								skipFirstSend = true;
+							}
+							else
+							{
+								System.out.println("Invalid Selection.  Please try again.");
+							}
+
+						} 
+						catch (NumberFormatException e) 
+						{
+							System.out.println("Invalid Selection.  Please try again.");
+						}
+						
+					}
+				}
+
+				// Send text to Peer
+				if (threadAssist.getState() == ThreadAssist.State.PEER)
+				{
+					// Dissconnect from server
+					serverOutput.writeBytes("300\n");
+
+					DataOutputStream peerOutput = new DataOutputStream(threadAssist.getPeerSocket().getOutputStream());
+					if (!skipFirstSend) peerOutput.writeBytes(data + "\n");
+					
+					while (true)
+					{
+						data = keyboard.nextLine();
+						peerOutput.writeBytes(data + "\n");
 					}
 				}
 			}
@@ -91,6 +151,25 @@ public class MTClient
 			System.out.println(e.getMessage());
 		}
 	}
+
+	public Socket makeSocket(String address)
+	{
+		try
+		{
+			String hostname = address.substring(1, address.indexOf(':'));
+			int port = Integer.parseInt(address.substring(address.indexOf(':')+1)) + 1000;
+			Socket tempSock = new Socket(hostname, port);
+			return tempSock;
+		}
+		catch (Exception e)
+		{
+			System.out.println("Error: " + e.toString());
+			return null;
+		}
+
+	}
+
+
 
 	public static void main(String[] args)
 	{

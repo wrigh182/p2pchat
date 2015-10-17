@@ -1,5 +1,5 @@
 /**
- * ClientListener.java
+ * ServerReader.java
  *
  * This class runs on the client end and just
  * displays any text received from the server.
@@ -13,15 +13,15 @@ import java.io.IOException;
 import java.util.Scanner;
 import java.util.ArrayList;
 
-public class ClientListener implements Runnable
+public class ServerReader implements Runnable
 {
-	private EnumHolder enumHolder;
+	private ThreadAssist threadAssist;
 	private Socket connectionSock = null;
 	private ArrayList<String> socketAddrList;
 
-	ClientListener(Socket sock, ArrayList<String> list, EnumHolder enumHolder)
+	ServerReader(Socket sock, ArrayList<String> list, ThreadAssist threadAssist)
 	{
-		this.enumHolder = enumHolder;
+		this.threadAssist = threadAssist;
 		this.connectionSock = sock;
 		this.socketAddrList = list; // reference to main list
 	}
@@ -41,7 +41,6 @@ public class ClientListener implements Runnable
 				// Code: exit
 				if (serverText.equals("300"))
 				{
-					System.out.println("Closing connection for socket " + connectionSock);
 					connectionSock.close();
 					break;
 				}
@@ -53,6 +52,7 @@ public class ClientListener implements Runnable
 					int listLength = Integer.parseInt(serverText.substring(10));
 
 					// Print number of other clients AKA list length
+					System.out.println("\n\n");
 					if (listLength > 1) System.out.println("There are " + listLength + " other users:");
 					else if (listLength == 1) System.out.println("There is 1 other user:");
 					else System.out.println("There are no other users");
@@ -60,7 +60,7 @@ public class ClientListener implements Runnable
 					// Clear existing list
 					socketAddrList.clear();
 
-					// Recieve list
+					// Recieve list and print
 					for (int i = 0; i < listLength; ++i)
 					{
 						serverText = serverInput.readLine();
@@ -72,7 +72,7 @@ public class ClientListener implements Runnable
 					// Prompt for peer selection
 					System.out.println("\nEnter the number of the client you would like to connect to,");
 					System.out.println("or enter \"r\" to refresh list of clients");
-					enumHolder.setState(EnumHolder.State.SELECT);
+					threadAssist.setState(ThreadAssist.State.SELECT);
 				}
 
 				else if (serverInput == null)
@@ -82,7 +82,10 @@ public class ClientListener implements Runnable
 					connectionSock.close();
 					break;
 				}
+			
+
 			}
+
 		}
 		catch (Exception e)
 		{
@@ -106,4 +109,4 @@ public class ClientListener implements Runnable
 
 	}
 
-} // ClientListener for MTClient
+} // ServerReader for MTClient
